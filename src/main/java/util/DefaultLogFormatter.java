@@ -1,0 +1,33 @@
+package util;
+
+import ch.qos.logback.classic.spi.ILoggingEvent;
+
+public class DefaultLogFormatter implements LogFormatter{
+	private static final String DELIMITER = " | ";
+    private static final String REGEX_DELIMITER = "\\s\\|\\s";
+
+    @Override
+    public String format(ILoggingEvent event, String currentHash, String previousHash) {
+        // ILoggingEvent에서 직접 타임스탬프와 메시지를 가져옴
+        return new StringBuilder()
+            .append(event.getTimeStamp()).append(DELIMITER)
+            .append(event.getFormattedMessage()).append(DELIMITER)
+            .append(currentHash).append(DELIMITER)
+            .append(previousHash)
+            .toString();
+    }
+
+    @Override
+    public String[] parse(String rawLine) {
+        if (rawLine == null || rawLine.trim().isEmpty()) {
+            throw new IllegalArgumentException("로그 라인이 비어있습니다.");
+        }
+        
+        // 정규표현식을 사용하여 " | " 구분자로 분리
+        String[] parts = rawLine.split(REGEX_DELIMITER, 4);
+        if (parts.length != 4) {
+            throw new IllegalArgumentException("로그 포맷이 일치하지 않습니다. (필드 개수 부족)");
+        }
+        return parts;
+    }
+}
