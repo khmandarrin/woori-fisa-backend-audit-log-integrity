@@ -1,10 +1,13 @@
 package verifier;
 
 import java.io.BufferedReader;
+
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 
 import util.HmacHasher;
 import util.KeyManager;
@@ -24,12 +27,12 @@ public class LogVerifier {
 
     private static final String GENESIS_PREV_HASH = "INIT_SEED_0000";
 
-    public VerifyResult verify(Path auditLogPath) throws IOException {
+    public VerifyAllResult verifyAll(Path auditLogPath) throws IOException {
         if (auditLogPath == null) {
-            return VerifyResult.fail(0, "auditLogPath가 null 입니다.");
+            return VerifyAllResult.fail("auditLogPath가 null 입니다.");
         }
         if (!Files.exists(auditLogPath)) {
-            return VerifyResult.fail(0, "파일이 존재하지 않습니다: " + auditLogPath);
+            return VerifyAllResult.fail("파일이 존재하지 않습니다: " + auditLogPath);
         }
 
         final String secretKey = KeyManager.getSecretKey();
@@ -39,6 +42,9 @@ public class LogVerifier {
 
         String expectedPrevHash = GENESIS_PREV_HASH;
         long lastTimestamp = Long.MIN_VALUE;
+
+        boolean chainBroken = false; // 한번 깨지면 이후 문제는 연쇄(cascade)로 표시
+        List<Issue> issues = new ArrayList<>();
 
         try (BufferedReader br = Files.newBufferedReader(auditLogPath, StandardCharsets.UTF_8)) {
             String line;
@@ -51,57 +57,45 @@ public class LogVerifier {
                 try {
                     pl = parse(line);
                 } catch (IllegalArgumentException e) {
-                    return VerifyResult.fail(lineNo, "로그 파싱 실패: " + e.getMessage() + " / raw=" + line);
+                    issues.add(Issue.parseError(lineNo, e.getMessage(), line, chainBroken));
+                    chainBroken = true;
+                    continue;
                 }
 
-                // (옵션) timestamp 순서 검증: 시간 역행 감지
+                // (옵션) timestamp 역행 체크
                 if (pl.timestamp < lastTimestamp) {
-                    return VerifyResult.tampered(
-                        lineNo,
-                        "타임스탬프 순서가 역행했습니다(시간 순서 뒤바뀜)",
-                        "previousTimestamp=" + lastTimestamp,
-                        "currentTimestamp=" + pl.timestamp,
-                        line
-                    );
+                    issues.add(Issue.timestampRollback(lineNo, lastTimestamp, pl.timestamp, line, chainBroken));
+                    chainBroken = true;
                 }
                 lastTimestamp = pl.timestamp;
 
-                // 1) previousHash 체인 검증
+                // 1) 체인 연결 체크: expectedPrevHash vs 로그 prev
                 if (!pl.previousHash.equals(expectedPrevHash)) {
-                    return VerifyResult.tampered(
-                        lineNo,
-                        "previousHash 체인 불일치(삭제/삽입/순서 변경 의심)",
-                        "expectedPrevHash=" + expectedPrevHash,
-                        "actualPrevHash=" + pl.previousHash,
-                        line
-                    );
+                    issues.add(Issue.prevHashMismatch(lineNo, expectedPrevHash, pl.previousHash, line, chainBroken));
+                    chainBroken = true;
                 }
 
-                // 2) currentHash 무결성 검증
-                final String expectedCurrentHash;
+                // 2) currentHash 체크: "로그에 적힌 previousHash" 기준으로 self-consistent 인지 확인
+                //    (체인이 깨졌으면 이후 줄들은 어차피 연쇄 영향일 수 있으니, 원인/영향 구분에 도움 됨)
                 try {
-                    expectedCurrentHash = HmacHasher.generateHmac(pl.message + pl.previousHash, secretKey);
+                    String expectedCurrent = HmacHasher.generateHmac(pl.message + pl.previousHash, secretKey);
+                    if (!pl.currentHash.equals(expectedCurrent)) {
+                        issues.add(Issue.currentHashMismatch(lineNo, expectedCurrent, pl.currentHash, line, chainBroken));
+                        chainBroken = true;
+                    }
                 } catch (Exception e) {
-                    return VerifyResult.fail(lineNo, "HMAC 계산 실패: " + e.getMessage());
+                    issues.add(Issue.hashCalcError(lineNo, e.getMessage(), line, chainBroken));
+                    chainBroken = true;
                 }
 
-                if (!pl.currentHash.equals(expectedCurrentHash)) {
-                    return VerifyResult.tampered(
-                        lineNo,
-                        "currentHash 불일치(내용 수정/위조 의심)",
-                        "expectedCurrentHash=" + expectedCurrentHash,
-                        "actualCurrentHash=" + pl.currentHash,
-                        line
-                    );
-                }
-
-                // 다음 줄 기대 prevHash 업데이트
+                // 다음 줄 기대 prevHash 갱신은 "파일에 기록된 currentHash" 기준으로 진행
+                // (그래야 이후 줄에서 '연쇄'가 어떻게 발생하는지 그대로 잡힘)
                 expectedPrevHash = pl.currentHash;
                 verified++;
             }
         }
 
-        return VerifyResult.ok(verified);
+        return new VerifyAllResult(issues.isEmpty(), verified, issues);
     }
 
     /**
@@ -148,56 +142,96 @@ public class LogVerifier {
         }
     }
 
-    public static class VerifyResult {
+    public static class VerifyAllResult {
         public final boolean valid;
-        public final int verifiedLines;
+        public final int processedLines;   // 빈 줄 제외 처리한 라인 수
+        public final List<Issue> issues;
 
-        public final Integer tamperedLine; // null이면 정상
-        public final String reason;
-        public final String expected;
-        public final String actual;
-        public final String rawLine;
-
-        private VerifyResult(
-            boolean valid,
-            int verifiedLines,
-            Integer tamperedLine,
-            String reason,
-            String expected,
-            String actual,
-            String rawLine
-        ) {
+        private VerifyAllResult(boolean valid, int processedLines, List<Issue> issues) {
             this.valid = valid;
-            this.verifiedLines = verifiedLines;
-            this.tamperedLine = tamperedLine;
-            this.reason = reason;
-            this.expected = expected;
-            this.actual = actual;
-            this.rawLine = rawLine;
+            this.processedLines = processedLines;
+            this.issues = issues;
         }
 
-        public static VerifyResult ok(int verifiedLines) {
-            return new VerifyResult(true, verifiedLines, null, null, null, null, null);
-        }
-
-        public static VerifyResult fail(int lineNo, String reason) {
-            return new VerifyResult(false, Math.max(0, lineNo - 1), lineNo, reason, null, null, null);
-        }
-
-        public static VerifyResult tampered(int lineNo, String reason, String expected, String actual, String rawLine) {
-            return new VerifyResult(false, lineNo - 1, lineNo, reason, expected, actual, rawLine);
+        public static VerifyAllResult fail(String reason) {
+            List<Issue> list = new ArrayList<>();
+            list.add(new Issue(0, IssueType.SYSTEM_ERROR, reason, null, null, null, false));
+            return new VerifyAllResult(false, 0, list);
         }
 
         @Override
         public String toString() {
-            if (valid) return "OK (verifiedLines=" + verifiedLines + ")";
-            return "FAIL (verifiedLines=" + verifiedLines +
-                   ", line=" + tamperedLine +
-                   ", reason=" + reason +
-                   (expected != null ? ", expected=" + expected : "") +
-                   (actual != null ? ", actual=" + actual : "") +
-                   (rawLine != null ? ", raw=" + rawLine : "") +
-                   ")";
+            if (valid) return "OK (processedLines=" + processedLines + ")";
+            StringBuilder sb = new StringBuilder();
+            sb.append("FAIL (processedLines=").append(processedLines).append(")\n");
+            for (Issue i : issues) {
+                sb.append(i).append("\n");
+            }
+            return sb.toString();
+        }
+    }
+
+    public enum IssueType {
+        PARSE_ERROR,
+        TIMESTAMP_ROLLBACK,
+        PREV_HASH_MISMATCH,
+        CURRENT_HASH_MISMATCH,
+        HASH_CALC_ERROR,
+        SYSTEM_ERROR
+    }
+
+    public static class Issue {
+        public final int line;
+        public final IssueType type;
+        public final String reason;
+        public final String expected;
+        public final String actual;
+        public final String rawLine;
+        public final boolean cascade; // true면 "이전 변조의 연쇄 영향"일 가능성이 큼
+
+        private Issue(int line, IssueType type, String reason,
+                      String expected, String actual, String rawLine, boolean cascade) {
+            this.line = line;
+            this.type = type;
+            this.reason = reason;
+            this.expected = expected;
+            this.actual = actual;
+            this.rawLine = rawLine;
+            this.cascade = cascade;
+        }
+
+        static Issue parseError(int line, String msg, String raw, boolean cascade) {
+            return new Issue(line, IssueType.PARSE_ERROR, "로그 파싱 실패: " + msg, null, null, raw, cascade);
+        }
+
+        static Issue timestampRollback(int line, long prevTs, long curTs, String raw, boolean cascade) {
+            return new Issue(line, IssueType.TIMESTAMP_ROLLBACK,
+                    "타임스탬프 역행", "previousTimestamp=" + prevTs, "currentTimestamp=" + curTs, raw, cascade);
+        }
+
+        static Issue prevHashMismatch(int line, String expectedPrev, String actualPrev, String raw, boolean cascade) {
+            return new Issue(line, IssueType.PREV_HASH_MISMATCH,
+                    "previousHash 체인 불일치", expectedPrev, actualPrev, raw, cascade);
+        }
+
+        static Issue currentHashMismatch(int line, String expectedCur, String actualCur, String raw, boolean cascade) {
+            return new Issue(line, IssueType.CURRENT_HASH_MISMATCH,
+                    "currentHash 불일치", expectedCur, actualCur, raw, cascade);
+        }
+
+        static Issue hashCalcError(int line, String msg, String raw, boolean cascade) {
+            return new Issue(line, IssueType.HASH_CALC_ERROR,
+                    "HMAC 계산 실패: " + msg, null, null, raw, cascade);
+        }
+
+        @Override
+        public String toString() {
+            return "[line " + line + "] " + type +
+                    (cascade ? " (cascade)" : " (root)") +
+                    " - " + reason +
+                    (expected != null ? " | expected=" + expected : "") +
+                    (actual != null ? " | actual=" + actual : "") +
+                    (rawLine != null ? " | raw=" + rawLine : "");
         }
     }
 }
