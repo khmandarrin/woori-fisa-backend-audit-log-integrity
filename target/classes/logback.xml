@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <appender name="AUDIT" class="core.IntegrityAuditAppender">
+        </appender>
+
+    <root level="INFO">
+        <appender-ref ref="AUDIT" />
+    </root>
+</configuration>
