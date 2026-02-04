@@ -1,8 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
     <appender name="AUDIT" class="core.IntegrityAuditAppender">
+    
+    	<!-- 로그 파일 이름, 경로 설정 -->
+        <logFileName>audit.log</logFileName>
+        
+        <!-- 사용자 커스텀 formatter 설정 (비어있으면 default)-->
+        <formatterClass></formatterClass>
+        
         </appender>
-
     <root level="INFO">
         <appender-ref ref="AUDIT" />
     </root>

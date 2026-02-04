@@ -18,8 +18,19 @@ public class IntegrityAuditAppender extends UnsynchronizedAppenderBase<ILoggingE
     
     private LogFormatter formatter = new DefaultLogFormatter();
 
-    public void setFormatter(LogFormatter formatter) {
-        this.formatter = formatter;
+    // 사용자가 만든 Formatter 클래스명을 받아서 설정 파일에서 불러오기 위한 메서드
+    public void setFormatterClass(String className) {
+        try {
+            Class<?> clazz = Class.forName(className);
+            this.formatter = (LogFormatter) clazz.getDeclaredConstructor().newInstance();
+        } catch (Exception e) {
+            addError("Formatter 생성 실패: " + className, e);
+        }
+    }
+    
+    // 로그 파일 이름을 받아서 설정 파일에서 설정하기 위한 메서드
+    public void setLogFileName(String logFileName) {
+        this.logFileName = logFileName;
     }
     
     @Override
