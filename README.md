@@ -37,7 +37,7 @@ MDC.put("userId", "admin001");
 MDC.put("clientIp", "192.168.1.100");
         
 // 로그인
-.info("관리자 로그인");
+logger.info("관리자 로그인");
 
 // 조회
 logger.info("계좌조회: 계좌번호=110-123-456");
@@ -50,6 +50,7 @@ logger.info("관리자 로그아웃");
 ```
 
 ``` java
+// audit.log
 // 접속시각 | userId | clientIP | 메시지(변경/조회 내용) | 현재 해쉬값 | 이전 해쉬값
 
 2026-02-04 15:22:40 | admin001 | 192.168.1.100 | 관리자 로그인 | fa7TqwM9bS... | INIT_SEED_0000
@@ -81,16 +82,36 @@ rawLine : 2026-02-04 15:22:40 | admin001 | 192.168.1.100 | 계좌이체: 출금=
 
 ## 💡 핵심 원리
 
-### 해시 체인 (Hash Chain)
+### 해시 체인
 
 각 로그 엔트리가 이전 로그의 해시값을 포함하여 거대한 사슬을 형성합니다.
 
 ```mermaid
 graph LR
-    L1[Log 1] --hash1--> L2[Log 2]
-    L2 --hash2--> L3[Log 3]
-    L3 --hash3--> L4[...]
+    subgraph Log1 [Log 1 생성]
+        Seed[Init Seed]
+        Msg1[Message 1]
+        Key1[Secret Key]
+        Calc1((HMAC))
+        Hash1[Hash 1]
+        
+        Seed & Msg1 & Key1 --> Calc1 --> Hash1
+    end
 
+    subgraph Log2 [Log 2 생성]
+        Msg2[Message 2]
+        Key2[Secret Key]
+        Calc2((HMAC))
+        Hash2[Hash 2]
+
+        Hash1 -.->|PrevHash로 주입| Calc2
+        Msg2 & Key2 --> Calc2 --> Hash2
+    end
+
+    subgraph Log3 [Log 3 ...]
+        Calc3((HMAC))
+        Hash2 -.->|PrevHash로 주입| Calc3
+    end
 ```
 
 **해시 생성 공식:**
@@ -100,7 +121,7 @@ graph LR
 
 <br>
 
-## 🔍 검증 메커니즘 (Verification Mechanism)
+## 🔍 검증 메커니즘
 
 ### 1. previousHash 체인 검증 (연결 무결성)
 
