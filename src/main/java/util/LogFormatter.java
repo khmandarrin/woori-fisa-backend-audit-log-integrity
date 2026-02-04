@@ -21,4 +21,9 @@ public interface LogFormatter {
      * @return
      */
     String[] parse(String rawLine);
+    
+    String extractMessage(String[] parts);
+    String extractPrevHash(String[] parts);
+    String extractCurrentHash(String[] parts);
+    
 }

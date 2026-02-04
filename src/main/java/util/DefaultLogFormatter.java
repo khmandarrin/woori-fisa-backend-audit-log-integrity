@@ -41,12 +41,27 @@ public class DefaultLogFormatter implements LogFormatter{
         }
         
         // 정규표현식을 사용하여 " | " 구분자로 분리
-        String[] parts = rawLine.split(REGEX_DELIMITER, 4);
-        if (parts.length != 4) {
+        String[] parts = rawLine.split(REGEX_DELIMITER, 6);
+        if (parts.length != 6) {
             throw new IllegalArgumentException("로그 포맷이 일치하지 않습니다. (필드 개수 부족)");
         }
         return parts;
     }
+    
+	@Override
+	public String extractMessage(String[] parts) {
+		return parts[3];
+	}
+
+	@Override
+	public String extractPrevHash(String[] parts) {
+		return parts[5];
+	}
+
+	@Override
+	public String extractCurrentHash(String[] parts) {
+		return parts[4];
+	}
     
     public void setTimeZone(String timeZone) {
         this.timeZone = timeZone;
