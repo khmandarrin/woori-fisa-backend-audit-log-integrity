@@ -1,16 +1,33 @@
 package util;
 
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+
 import ch.qos.logback.classic.spi.ILoggingEvent;
 
 public class DefaultLogFormatter implements LogFormatter{
 	private static final String DELIMITER = " | ";
     private static final String REGEX_DELIMITER = "\\s\\|\\s";
 
+    private String timeZone = "Asia/Seoul";
+    private String datePattern = "yyyy-MM-dd HH:mm:ss";
+    
     @Override
     public String format(ILoggingEvent event, String currentHash, String previousHash) {
+        String formattedTime = Instant.ofEpochMilli(event.getTimeStamp())
+                .atZone(ZoneId.of(timeZone))
+                .format(DateTimeFormatter.ofPattern(datePattern));
+        
+        // MDC에서 userId, clientIp 꺼내기
+        String userId = event.getMDCPropertyMap().getOrDefault("userId", "SYSTEM");
+        String clientIp = event.getMDCPropertyMap().getOrDefault("clientIp", "N/A");
+        
         // ILoggingEvent에서 직접 타임스탬프와 메시지를 가져옴
         return new StringBuilder()
-            .append(event.getTimeStamp()).append(DELIMITER)
+            .append(formattedTime).append(DELIMITER)
+            .append(userId).append(DELIMITER)
+            .append(clientIp).append(DELIMITER)
             .append(event.getFormattedMessage()).append(DELIMITER)
             .append(currentHash).append(DELIMITER)
             .append(previousHash)
@@ -29,5 +46,13 @@ public class DefaultLogFormatter implements LogFormatter{
             throw new IllegalArgumentException("로그 포맷이 일치하지 않습니다. (필드 개수 부족)");
         }
         return parts;
+    }
+    
+    public void setTimeZone(String timeZone) {
+        this.timeZone = timeZone;
+    }
+
+    public void setDatePattern(String datePattern) {
+        this.datePattern = datePattern;
     }
 }
