@@ -1,1 +1,7 @@
 /target/
+# Maven
+target/
+
+# Logs
+*.log
+audit.log
