@@ -40,6 +40,8 @@ public class LogVerifier {
         String expectedPrevHash = GENESIS_PREV_HASH;
         boolean chainBroken = false;
         List<Issue> issues = new ArrayList<>();
+        
+        String lastFileHead = null; // ✅ 파일의 마지막 currentHash
 
         try (BufferedReader br = Files.newBufferedReader(auditLogPath, StandardCharsets.UTF_8)) {
             String line;
@@ -59,7 +61,10 @@ public class LogVerifier {
                 String message = formatter.extractMessage(parts);
                 String currentHash = formatter.extractCurrentHash(parts);
                 String previousHash = formatter.extractPrevHash(parts);
-
+                
+                // ✅ 마지막 head 갱신
+                lastFileHead = currentHash;
+                
                 if (!previousHash.equals(expectedPrevHash)) {
                     issues.add(Issue.prevHashMismatch(lineNo, expectedPrevHash, previousHash, line, chainBroken));
                     chainBroken = true;
@@ -79,6 +84,27 @@ public class LogVerifier {
                 expectedPrevHash = currentHash;
                 verified++;
             }
+        }
+        
+        // ✅ 끝 삭제(truncate) 탐지: audit.head와 파일 마지막 currentHash 비교
+        Path headPath = auditLogPath.resolveSibling("audit.head"); // audit.log 옆에 audit.head
+        String storedHead = null;
+        if (Files.exists(headPath)) {
+            storedHead = Files.readString(headPath, StandardCharsets.UTF_8).trim();
+            if (storedHead.isEmpty()) storedHead = null;
+        }
+
+        // head가 저장되어 있는데 파일 마지막 head와 다르면 => 끝 삭제/롤백/교체 의심
+        if (storedHead != null && (lastFileHead == null || !storedHead.equals(lastFileHead))) {
+            issues.add(new Issue(
+                    Math.max(1, lineNo),                 // 표시용
+                    IssueType.TAIL_TRUNCATION,
+                    "파일 끝 로그 삭제/롤백 의심(head 불일치)",
+                    "storedHead=" + storedHead,
+                    "fileLastHead=" + lastFileHead,
+                    null,
+                    false
+            ));
         }
 
         return new VerifyResult(issues.isEmpty(), verified, issues);
@@ -118,6 +144,7 @@ public class LogVerifier {
         PREV_HASH_MISMATCH,
         CURRENT_HASH_MISMATCH,
         HASH_CALC_ERROR,
+        TAIL_TRUNCATION,   // ✅ 추가
         SYSTEM_ERROR
     }
 

@@ -4,6 +4,11 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.io.PrintWriter;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.charset.StandardCharsets;
+
+
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.UnsynchronizedAppenderBase;
 import util.DefaultLogFormatter;
@@ -47,6 +52,11 @@ public class IntegrityAuditAppender extends UnsynchronizedAppenderBase<ILoggingE
 
             // 3. 파일에 쓰기
             writeLogToFile(logLine);
+            
+            // 삭제 검증 구현
+            Path headPath = Path.of(logFileName).resolveSibling("audit.head");
+            Files.writeString(headPath, currentHash + System.lineSeparator(), StandardCharsets.UTF_8);
+
 
             // 4. 현재 해시를 다음 로그의 '이전 해시'로 업데이트 (체이닝)
             this.previousHash = currentHash;
