@@ -21,10 +21,27 @@
 ## 🚀 사용 방법
 
 ### 1. 설정
-`src/main/resources/audit.properties` 파일에 비밀키와 초기 시드값을 설정합니다.
+`src/main/resources/audit.properties` 파일에 비밀키를 설정합니다.
 ```properties
 audit.secret.key=top-secret
-audit.initial.seed=INIT_SEED_V1
+```
+
+Logback 설정 파일(`logback.xml`)에 설정을 추가합니다.
+```xml
+ <configuration>
+    <appender name="AUDIT" class="core.IntegrityAuditAppender">
+    
+    	<!-- 로그 파일 이름, 경로 설정 -->
+        <logFileName>audit.log</logFileName>
+        
+        <!-- 사용자 커스텀 formatter 설정 (비어있으면 default)-->
+        <formatterClass>main.MyCustomFormatter</formatterClass>
+        
+        </appender>
+    <root level="INFO">
+        <appender-ref ref="AUDIT" />
+    </root>
+</configuration>
 ```
 
 ### 2. 로그 기록
