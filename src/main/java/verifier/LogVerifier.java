@@ -16,6 +16,7 @@ import util.LogFormatter;
 public class LogVerifier {
 
     private static final String GENESIS_PREV_HASH = "INIT_SEED_0000";
+    private static final String AUDIT_HEAD_FILENAME = "audit.head";
     private final LogFormatter formatter;
 
     public LogVerifier() {
@@ -41,7 +42,7 @@ public class LogVerifier {
         boolean chainBroken = false;
         List<Issue> issues = new ArrayList<>();
         
-        String lastFileHead = null; // ✅ 파일의 마지막 currentHash
+        String lastFileHead = null; // 파일의 마지막 currentHash
 
         try (BufferedReader br = Files.newBufferedReader(auditLogPath, StandardCharsets.UTF_8)) {
             String line;
@@ -62,7 +63,7 @@ public class LogVerifier {
                 String currentHash = formatter.extractCurrentHash(parts);
                 String previousHash = formatter.extractPrevHash(parts);
                 
-                // ✅ 마지막 head 갱신
+                // 마지막 head 갱신
                 lastFileHead = currentHash;
                 
                 if (!previousHash.equals(expectedPrevHash)) {
@@ -86,8 +87,8 @@ public class LogVerifier {
             }
         }
         
-        // ✅ 끝 삭제(truncate) 탐지: audit.head와 파일 마지막 currentHash 비교
-        Path headPath = auditLogPath.resolveSibling("audit.head"); // audit.log 옆에 audit.head
+        // 끝 삭제(truncate) 탐지: audit.head와 파일 마지막 currentHash 비교
+        Path headPath = auditLogPath.resolveSibling(AUDIT_HEAD_FILENAME); // audit.log 옆에 audit.head
         String storedHead = null;
         if (Files.exists(headPath)) {
             storedHead = Files.readString(headPath, StandardCharsets.UTF_8).trim();
@@ -96,15 +97,7 @@ public class LogVerifier {
 
         // head가 저장되어 있는데 파일 마지막 head와 다르면 => 끝 삭제/롤백/교체 의심
         if (storedHead != null && (lastFileHead == null || !storedHead.equals(lastFileHead))) {
-            issues.add(new Issue(
-                    Math.max(1, lineNo),                 // 표시용
-                    IssueType.TAIL_TRUNCATION,
-                    "파일 끝 로그 삭제/롤백 의심(head 불일치)",
-                    "storedHead=" + storedHead,
-                    "fileLastHead=" + lastFileHead,
-                    null,
-                    false
-            ));
+            issues.add(Issue.tailTruncation(Math.max(1, lineNo), storedHead, lastFileHead));
         }
 
         return new VerifyResult(issues.isEmpty(), verified, issues);
@@ -123,7 +116,7 @@ public class LogVerifier {
 
         public static VerifyResult fail(String reason) {
             List<Issue> list = new ArrayList<>();
-            list.add(new Issue(0, IssueType.SYSTEM_ERROR, reason, null, null, null, false));
+            list.add(Issue.systemError(reason));
             return new VerifyResult(false, 0, list);
         }
 
@@ -182,6 +175,22 @@ public class LogVerifier {
 
         static Issue hashCalcError(int line, String msg, String raw, boolean cascade) {
             return new Issue(line, IssueType.HASH_CALC_ERROR, "HMAC 계산 실패: " + msg, null, null, raw, cascade);
+        }
+
+        static Issue tailTruncation(int line, String storedHead, String fileLastHead) {
+            return new Issue(
+                    line,
+                    IssueType.TAIL_TRUNCATION,
+                    "파일 끝 로그 삭제/롤백 의심(head 불일치)",
+                    "storedHead=" + storedHead,
+                    "fileLastHead=" + fileLastHead,
+                    null,
+                    false
+            );
+        }
+
+        static Issue systemError(String reason) {
+            return new Issue(0, IssueType.SYSTEM_ERROR, reason, null, null, null, false);
         }
 
         @Override

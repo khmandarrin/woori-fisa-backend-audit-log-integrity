@@ -2,3 +2,4 @@ target/
 .metadata/
 .settings/
 *.log
+*.head
