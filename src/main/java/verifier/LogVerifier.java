@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.GeneralSecurityException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -95,7 +96,7 @@ public class LogVerifier {
                         issues.add(Issue.currentHashMismatch(lineNo, calculatedHash, currentHash, line, chainBroken));
                         chainBroken = true;
                     }
-                } catch (Exception e) {
+                } catch (GeneralSecurityException e) {
                     issues.add(Issue.hashCalcError(lineNo, e.getMessage(), line, chainBroken));
                     chainBroken = true;
                 }
