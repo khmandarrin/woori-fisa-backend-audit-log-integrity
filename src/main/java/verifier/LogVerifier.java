@@ -123,10 +123,16 @@ public class LogVerifier {
         return new VerifyResult(issues.isEmpty(), verified, issues);
     }
 
+    /**
+     * 로그 검증 결과를 담는 클래스.
+     *
+     * @see Issue
+     */
     public static class VerifyResult {
-        public final boolean valid;
-        public final int processedLines;
-        public final List<Issue> issues;
+ 
+        public final boolean valid; // 검증 성공 여부 (true: 모든 검증 통과, false: 하나 이상의 문제 발견)
+        public final int processedLines; // 검증 처리된 로그 라인 수
+        public final List<Issue> issues; // 발견된 문제 목록
 
         private VerifyResult(boolean valid, int processedLines, List<Issue> issues) {
             this.valid = valid;
@@ -159,22 +165,29 @@ public class LogVerifier {
     }
 
     public enum IssueType {
-        PARSE_ERROR,
-        PREV_HASH_MISMATCH,
-        CURRENT_HASH_MISMATCH,
-        HASH_CALC_ERROR,
-        TAIL_TRUNCATION,   // ✅ 추가
-        SYSTEM_ERROR
+        PARSE_ERROR, // 로그 라인 파싱 실패
+        PREV_HASH_MISMATCH, // previousHash 체인 불일치 (중간 로그 삭제/변조 의심)
+        CURRENT_HASH_MISMATCH, // currentHash 불일치 (로그 내용 변조 의심)      
+        HASH_CALC_ERROR, // HMAC 해시 계산 중 오류 발생
+        TAIL_TRUNCATION, // 끝 로그 삭제/롤백 의심 (audit.head와 불일치)
+        SYSTEM_ERROR // 시스템 오류 (null 경로, 파일 없음 등)
     }
 
+    /**
+     * 검증 중 발견된 개별 문제를 표현하는 클래스.
+     *
+     * 각 Issue는 문제가 발생한 위치, 유형, 상세 정보를 포함한다.
+     *
+     * @see IssueType
+     */
     public static class Issue {
-        public final int line;
-        public final IssueType type;
-        public final String reason;
-        public final String expected;
-        public final String actual;
-        public final String rawLine;
-        public final boolean cascade;
+        public final int line; // 문제가 발생한 라인 번호
+        public final IssueType type; //문제 유형
+        public final String reason; // 문제에 대한 상세 설명
+        public final String expected; // 기대 해시값
+        public final String actual; // 실제 해시값
+        public final String rawLine; // 문제가 발생한 원본 로그 라인
+        public final boolean cascade; // 연쇄 오류 여부 (true: 이전 오류로 인한 파생 오류, false: 최초 발생 오류)
 
         private Issue(int line, IssueType type, String reason,
                       String expected, String actual, String rawLine, boolean cascade) {
