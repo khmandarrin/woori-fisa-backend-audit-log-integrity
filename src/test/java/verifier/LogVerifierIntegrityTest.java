@@ -12,6 +12,7 @@ import util.LogFormatter;
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.when;
 
 import java.io.IOException;
@@ -59,6 +60,9 @@ class LogVerifierIntegrityTest {
 	private MockedStatic<KeyManager> mockKeyManager;
 	private MockedStatic<HmacHasher> mockHmacHasher;
 
+	private String secretKey;
+	private String genesisHash;
+
 	@BeforeAll
 	static void setUpAll() throws IOException {
 		tempDir = Files.createTempDirectory("log-verifier-integrity-test");
@@ -69,6 +73,10 @@ class LogVerifierIntegrityTest {
 		mockFormatter = Mockito.mock(LogFormatter.class);
 		mockKeyManager = Mockito.mockStatic(KeyManager.class);
 		mockHmacHasher = Mockito.mockStatic(HmacHasher.class);
+
+		secretKey = "test-secret-key";
+		genesisHash = "INIT_SEED_0000";
+		mockKeyManager.when(KeyManager::getSecretKey).thenReturn(secretKey);
 	}
 
 	@AfterEach
@@ -137,10 +145,7 @@ class LogVerifierIntegrityTest {
 	@DisplayName("현재 로그의 prevHash가 이전 로그의 currentHash와 다르면 PREV_HASH_MISMATCH 이슈 발생 (중간 로그 삭제/순서 변경 탐지)")
 	void verify_PrevHashMismatch_ReturnsPrevHashMismatchError() throws IOException {
 		// 1. 전제 조건 설정 (Given)
-		final String secretKey = "test-secret-key";
-		final String genesisHash = "INIT_SEED_0000"; // 실제 코드의 GENESIS_PREV_HASH와 일치해야 함
-
-		mockKeyManager.when(KeyManager::getSecretKey).thenReturn(secretKey);
+		// mockKeyManager는 setUp()에서 설정됨
 
 		// 로그 데이터 정의
 		LogData log1 = new LogData(1, "User logged in", genesisHash, "HASH_1");
@@ -212,11 +217,44 @@ class LogVerifierIntegrityTest {
 	 * 기대 결과: valid=false, issues에 CURRENT_HASH_MISMATCH 포함, expected에 계산된 해시,
 	 * actual에 변조된 해시
 	 * </p>
+	 * 
+	 * @throws IOException
 	 */
 	@Test
 	@DisplayName("로그의 currentHash가 HMAC(message+prevHash) 계산 결과와 다르면 CURRENT_HASH_MISMATCH 이슈 발생 (로그 변조 탐지)")
-	void verify_CurrentHashMismatch_ReturnsCurrentHashMismatchError() {
-		
+	void verify_CurrentHashMismatch_ReturnsCurrentHashMismatchError() throws IOException {
+		// 1. Given
+
+		String correctHash = "CORRECT_HMAC_RESULT";
+		String tamperedHash = "TAMPERED_HASH_IN_LOG";
+
+		// 로그 데이터 정의 (기록된 해시는 tamperedHash 지만, 계산 결과는 correctHash 가 나오도록 모킹할 것임)
+		LogData log1 = new LogData(1, "User login", genesisHash, tamperedHash);
+
+		// 모킹 설정
+		String[] parts = log1.toParts();
+		when(mockFormatter.parse(log1.raw)).thenReturn(parts);
+		when(mockFormatter.extractMessage(parts)).thenReturn(log1.msg);
+		when(mockFormatter.extractPrevHash(parts)).thenReturn(log1.prevHash);
+		when(mockFormatter.extractCurrentHash(parts)).thenReturn(log1.currentHash);
+
+		// HMAC 계산 시 로그에 적힌 tamperedHash가 아닌 correctHash를 반환하도록 시뮬레이션
+		mockHmacHasher.when(() -> HmacHasher.generateHmac(log1.msg + log1.prevHash, secretKey)).thenReturn(correctHash);
+
+		Path logFile = createTempLogFile(log1.raw);
+		createTempHeadFile(tamperedHash);
+
+		// 2. When
+		LogVerifier verifier = new LogVerifier(mockFormatter);
+		LogVerifier.VerifyResult result = verifier.verify(logFile);
+
+		// 3. Then
+		assertAll("현재 해시 불일치 검증", () -> assertFalse(result.valid), () -> {
+			LogVerifier.Issue issue = result.issues.get(0);
+			assertEquals(LogVerifier.IssueType.CURRENT_HASH_MISMATCH, issue.type);
+			assertEquals(correctHash, issue.expected, "기대값은 HMAC으로 계산된 올바른 해시");
+			assertEquals(tamperedHash, issue.actual, "실제값은 로그에 기록되어 있던 변조된 해시");
+		});
 	}
 
 	/**
@@ -256,11 +294,46 @@ class LogVerifierIntegrityTest {
 	 * <p>
 	 * 기대 결과: 첫 이슈는 cascade=false, 이후 이슈는 cascade=true
 	 * </p>
+	 * 
+	 * @throws IOException
 	 */
 	@Test
 	@DisplayName("첫 번째 오류는 cascade=false(root cause)이고, 이후 발생하는 연쇄 오류는 cascade=true로 표시")
-	void verify_MultipleIssues_CascadingFlagged() {
-		// TODO
+	void verify_MultipleIssues_CascadingFlagged() throws IOException {
+		// 1. Given
+
+		// 로그1: 해시 불일치 발생 (Root Cause)
+		LogData log1 = new LogData(1, "Log 1", genesisHash, "WRONG_HASH");
+
+		// 로그2: prevHash가 로그1의 currentHash와 다르게 설정하여 연쇄 오류 유도
+		// 로그1의 currentHash는 "WRONG_HASH"인데, 로그2는 "ANOTHER_HASH"를 참조하게 함
+		LogData log2 = new LogData(2, "Log 2", "ANOTHER_HASH", "HASH_2");
+
+		// 로그 1 모킹 (계산값은 CORRECT_1인데 저장값은 WRONG_HASH인 상태)
+		setupMockBehavior(log1, secretKey);
+		mockHmacHasher.when(() -> HmacHasher.generateHmac(log1.msg + log1.prevHash, secretKey)).thenReturn("CORRECT_1");
+
+		// 로그 2 모킹
+		setupMockBehavior(log2, secretKey);
+
+		Path logFile = createTempLogFile(log1.raw, log2.raw);
+		createTempHeadFile(log2.currentHash);
+
+		// 2. When
+		LogVerifier verifier = new LogVerifier(mockFormatter);
+		LogVerifier.VerifyResult result = verifier.verify(logFile);
+
+		// 3. Then
+		assertAll("연쇄 오류 플래그 검증", () -> assertFalse(result.valid),
+				() -> assertEquals(2, result.issues.size(), "이슈가 2개 발생해야 함 (Root 1 + Cascade 1)"), () -> {
+					LogVerifier.Issue issue1 = result.issues.get(0);
+					assertEquals(LogVerifier.IssueType.CURRENT_HASH_MISMATCH, issue1.type);
+					assertFalse(issue1.cascade, "첫 번째 이슈는 root cause");
+				}, () -> {
+					LogVerifier.Issue issue2 = result.issues.get(1);
+					assertEquals(LogVerifier.IssueType.PREV_HASH_MISMATCH, issue2.type);
+					assertTrue(issue2.cascade, "두 번째 이슈는 chainBroken 이후이므로 cascade=true");
+				});
 	}
 
 	/**
@@ -307,8 +380,31 @@ class LogVerifierIntegrityTest {
 	 */
 	@Test
 	@DisplayName("audit.head 파일의 해시와 로그 파일 마지막 currentHash가 다르면 TAIL_TRUNCATION 이슈 발생 (끝 로그 삭제/롤백 탐지)")
-	void verify_HeadMismatch_ReturnsTailTruncation() {
-		// TODO
+	void verify_HeadMismatch_ReturnsTailTruncation() throws IOException {
+		// 1. Given
+
+		LogData log1 = new LogData(1, "Log 1", "INIT_SEED_0000", "HASH_1");
+		setupMockBehavior(log1, secretKey);
+
+		Path logFile = createTempLogFile(log1.raw);
+
+		// 실제 마지막 로그 해시는 HASH_1인데, head 파일에는 더 미래의 해시인 HASH_2가 적혀있는 상황 (삭제 의심)
+		String storedHeadInFile = "FUTURE_HASH_2";
+		createTempHeadFile(storedHeadInFile);
+
+		// 2. When
+		LogVerifier verifier = new LogVerifier(mockFormatter);
+		LogVerifier.VerifyResult result = verifier.verify(logFile);
+
+		// 3. Then
+		assertAll("끝 삭제 탐지 검증", () -> assertFalse(result.valid), () -> {
+			LogVerifier.Issue issue = result.issues.stream()
+					.filter(i -> i.type == LogVerifier.IssueType.TAIL_TRUNCATION).findFirst().orElseThrow();
+
+			assertEquals("storedHead=" + storedHeadInFile, issue.expected);
+			assertEquals("fileLastHead=" + log1.currentHash, issue.actual);
+			assertFalse(issue.cascade, "Tail Truncation은 독립적인 검사로 cascade=false");
+		});
 	}
 
 	private void setupMockBehavior(LogData data, String key) {
