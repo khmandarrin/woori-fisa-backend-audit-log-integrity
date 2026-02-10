@@ -3,29 +3,43 @@
 
 <br>
 
-## 📖 개요
+## 개요
 
-금융 시스템에서 감사 로그(Audit Log)는 보안 사고 추적 및 규정 준수의 핵심 요소입니다. <br><br>
-이 프로젝트는 로그의 **위변조, 삭제, 순서 변경을 원천적으로 탐지**할 수 있는 메커니즘을 제공합니다.
+금융 시스템에서 감사 로그(Audit Log)는 보안 사고 추적 및 규정 준수의 핵심 요소입니다.
+이 프로젝트는 는 금융 거래, 시스템 접근 등 민감한 작업의 로그가 생성된 시점부터 보관되는 동안의 위조, 변조, 삭제, 혹은 순서 변경을 탐지하는 Java 라이브러리입니다.
 
-<br>
-
-### 🛡️ 탐지 가능한 위협
-- **내용 위변조:** 로그 메시지의 단 1바이트라도 변경되면 탐지
-- **로그 삭제/삽입:** 중간 로그가 사라지거나 끼어들면 체인 붕괴
-- **순서 변경:** 로그의 시간적 순서가 뒤바뀌면 탐지
+#### 탐지 가능한 위협
+ - **내용 위변조:** 로그 메시지의 단 1바이트라도 변경되면 탐지
+ - **로그 삭제/삽입:** 중간 로그가 사라지거나 끼어들면 체인 붕괴
+ - **순서 변경:** 로그의 시간적 순서가 뒤바뀌면 탐지
 
 <br>
 
-## 🚀 사용 방법
+## System Architecture
+1. **Core (Appender)**: Logback 환경에서 로그 이벤트를 가로채 해시를 생성하고 기록합니다.
+2. **Util (Formatter & Hasher)**: 데이터 포맷팅과 암호화 연산을 수행합니다.
+3. **Verifier**: 저장된 로그 파일을 전수 조사하여 무결성을 검증합니다.
+
+<br>
+
+## Getting Started
 
 ### 1. 설정
-`src/main/resources/audit.properties` 파일에 비밀키를 설정합니다.
+1. 빌드 후 라이브러리를 pom.xml에 추가합니다.
+```xml
+<dependency>
+    <groupId>com.service.woori</groupId>
+    <artifactId>audit-log</artifactId>
+    <version>1.0.1</version>
+</dependency>
+```
+
+2. `src/main/resources/audit.properties` 파일에 해시 생성에 사용할 비밀키를 설정합니다.
 ```properties
 audit.secret.key=top-secret
 ```
 
-Logback 설정 파일(`logback.xml`)에 설정을 추가합니다.
+3. Logback 설정 파일(`logback.xml`)에 `IntegrityAuditAppender`를 등록하고 사용할 `Formatter`를 주입합니다.
 ```xml
  <configuration>
     <appender name="AUDIT" class="core.IntegrityAuditAppender">
@@ -34,7 +48,7 @@ Logback 설정 파일(`logback.xml`)에 설정을 추가합니다.
         <logFileName>audit.log</logFileName>
         
         <!-- 사용자 커스텀 formatter 설정 (비어있으면 default)-->
-        <formatterClass>main.MyCustomFormatter</formatterClass>
+        <formatterClass></formatterClass>
         
         </appender>
     <root level="INFO">
@@ -65,9 +79,9 @@ logger.info("계좌이체: 출금=110-123-456, 입금=220-456-789, 금액=1,000,
 logger.info("관리자 로그아웃");
 ```
 
-``` java
-// audit.log
-// 접속시각 | userId | clientIP | 메시지(변경/조회 내용) | 현재 해쉬값 | 이전 해쉬값
+```java
+# audit.log
+# 접속시각 | userId | clientIP | 메시지(변경/조회 내용) | 현재 해쉬값 | 이전 해쉬값
 
 2026-02-04 15:22:40 | admin001 | 192.168.1.100 | 관리자 로그인 | fa7TqwM9bS... | INIT_SEED_0000
 2026-02-04 15:22:40 | admin001 | 192.168.1.100 | 계좌조회: 계좌번호=110-123-456 | 4QT+QxDJe8... | fa7TqwM9bS...
@@ -78,6 +92,15 @@ logger.info("관리자 로그아웃");
 ### 3. 무결성 검증
 
 `LogVerifier`를 실행하여 저장된 로그 파일의 무결성을 검사합니다.
+
+```java
+Path auditLogPath = Paths.get("audit.log");
+
+LogVerifier verifier = new LogVerifier(); // default formatter 사용
+VerifyResult result = verifier.verify(auditLogPath);
+
+System.out.println(result);
+```
 
 ```java
 // 검증 성공 시
@@ -96,7 +119,7 @@ rawLine : 2026-02-04 15:22:40 | admin001 | 192.168.1.100 | 계좌이체: 출금=
 
 <br>
 
-## 💡 핵심 원리
+## 핵심 원리
 
 ### 해시 체인
 
@@ -137,7 +160,7 @@ graph LR
 
 <br>
 
-## 🔍 검증 메커니즘
+## 검증 메커니즘
 
 ### 1. previousHash 체인 검증 (연결 무결성)
 
@@ -153,8 +176,27 @@ graph LR
 
 
 
+## Testing
 
+### Test Code
+JUnit과 Mockito를 사용하여 테스트 코드를 작성하였습니다.
+- `LogVerifierExceptionTest`:
+- `LogVerifierInputValidationTest`:
+- `LogVerifierIntegrityTest`:
+- `LogVerifierSuccessTest`:
 
+### Test Coverage Report
+jacoco를 통해 생성한 테스트 리포트는 다음과 같습니다.
+
+<img width="1152" height="225" alt="Image" src="https://github.com/user-attachments/assets/59f96107-78fa-4592-b176-37ef23913eab" />
+
+<img width="1291" height="244" alt="Image" src="https://github.com/user-attachments/assets/c65b5a0b-e854-4a3a-9468-d4ce7882f195" />
+
+<img width="1571" height="381" alt="Image" src="https://github.com/user-attachments/assets/c9e97820-7145-46d7-bd60-a70ff3aa2ad9" />
+
+<img width="1265" height="227" alt="Image" src="https://github.com/user-attachments/assets/4b237049-6a43-4d23-a88e-aaf97391a8fb" />
+
+<img width="1146" height="225" alt="Image" src="https://github.com/user-attachments/assets/08449401-f4c0-4132-80b9-85b82d4ad67b" />
 
 
 
