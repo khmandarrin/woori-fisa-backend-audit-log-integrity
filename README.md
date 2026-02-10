@@ -1,5 +1,5 @@
 
-# Audit Log Integrity 감사 로그 변조 방지
+# 감사 로그 변조 방지 (Audit Log Integrity)
 
 <br>
 
@@ -189,9 +189,9 @@ graph LR
 
 ### Test Code
 JUnit과 Mockito를 사용하여 테스트 코드를 작성하였습니다.
-- `LogVerifierExceptionTest`: 입력 및 파일 상태를 테스트합니다.
-- `LogVerifierInputValidationTest`: 검증이 정상적으로 이루어진 상황(Happy path)을 테스트합니다.
-- `LogVerifierIntegrityTest`: 잘못된 로그 포맷이나 해시 계산 알고리즘 오류 등의 기술적 예외를 처리합니다.
+- `LogVerifierExceptionTest`: 로그 처리 중 예외(Exception)가 발생하는 케이스들을 검증. 로그 포맷 오류나 HMAC 계산 실패 등 예외 상황에서의 Issue 생성을 테스트합니다.
+- `LogVerifierInputValidationTest`: 파일 시스템 상태나 입력값 자체의 유효성을 검증합니다.
+- `LogVerifierIntegrityTest`: 로그 변조, 삭제, 순서 변경 등 보안 위협 상황을 탐지하는 로직을 테스트합니다.
 - `LogVerifierSuccessTest`: 로그 변조가 없는 정상 상태에서 검증 결과가 성공으로 처리되는 경우(Happy path)를 테스트합니다.
 
 ### Test Coverage Report
