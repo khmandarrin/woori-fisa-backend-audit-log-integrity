@@ -162,15 +162,24 @@ graph LR
 
 ## 검증 메커니즘
 
-### 1. previousHash 체인 검증 (연결 무결성)
+1. **HMAC 기반 단일 로그 무결성 (Integrity)**
+* 로그 메시지와 이전 해시를 결합하여 실시간으로 HMAC을 계산합니다.
+* 저장된 `currentHash`와 계산값이 다를 경우, 해당 로그 내용이 변조된 것으로 판단합니다.
 
-`Current.PreviousHash == Last.CurrentHash` <br>
-- 로그의 삭제, 삽입, 순서 변경을 탐지합니다. 앞뒤 연결 고리가 끊어졌는지 확인합니다. 
 
-### 2. currentHash 데이터 검증 (내용 무결성)
+2. **해시 체인 연결성 검증 (Chain Continuity)**
+* 현재 로그의 `previousHash`가 직전 로그의 `currentHash`와 일치하는지 확인합니다.
+* 체인 단절 시 로그의 **순서 변경, 중간 삭제, 임의 삽입** 공격을 탐지합니다.
 
-`Current.CurrentHash == HMAC(Message + PreviousHash, Key)` <br>
-- 로그의 내용(메시지)이 변조되었는지 확인합니다. 비밀키가 없으면 유효한 해시를 만들 수 없습니다.
+
+3. **파일 끝 삭제 탐지 (Tail Truncation)**
+* 별도의 관리 파일(`audit.head`)에 기록된 최신 해시와 실제 로그 파일의 마지막 해시를 비교합니다.
+* 두 값이 다를 경우 최신 로그 삭제 및 롤백 시도가 있었음을 의미합니다.
+
+
+4. **연쇄 오류 식별 및 추적 (Root Cause Analysis)**
+* 무결성이 한 번 깨지면 이후의 모든 체인은 자동으로 불일치하게 됩니다.
+* 최초 원인(`cascade: false`)과 파생된 오류(`cascade: true`)를 구분하여 실제 변조 지점을 정확히 파악합니다.
 
 <br>
 
@@ -180,10 +189,10 @@ graph LR
 
 ### Test Code
 JUnit과 Mockito를 사용하여 테스트 코드를 작성하였습니다.
-- `LogVerifierExceptionTest`:
-- `LogVerifierInputValidationTest`:
-- `LogVerifierIntegrityTest`:
-- `LogVerifierSuccessTest`:
+- `LogVerifierExceptionTest`: 입력 및 파일 상태를 테스트합니다.
+- `LogVerifierInputValidationTest`: 검증이 정상적으로 이루어진 상황(Happy path)을 테스트합니다.
+- `LogVerifierIntegrityTest`: 잘못된 로그 포맷이나 해시 계산 알고리즘 오류 등의 기술적 예외를 처리합니다.
+- `LogVerifierSuccessTest`: 데이터 변조, 순서 변경, 로그 삭제 등 보안 위협을 탐지하고 연쇄 오류(Cascade)를 식별합니다.
 
 ### Test Coverage Report
 jacoco를 통해 생성한 테스트 리포트는 다음과 같습니다.
