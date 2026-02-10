@@ -192,7 +192,7 @@ JUnit과 Mockito를 사용하여 테스트 코드를 작성하였습니다.
 - `LogVerifierExceptionTest`: 입력 및 파일 상태를 테스트합니다.
 - `LogVerifierInputValidationTest`: 검증이 정상적으로 이루어진 상황(Happy path)을 테스트합니다.
 - `LogVerifierIntegrityTest`: 잘못된 로그 포맷이나 해시 계산 알고리즘 오류 등의 기술적 예외를 처리합니다.
-- `LogVerifierSuccessTest`: 데이터 변조, 순서 변경, 로그 삭제 등 보안 위협을 탐지하고 연쇄 오류(Cascade)를 식별합니다.
+- `LogVerifierSuccessTest`: 로그 변조가 없는 정상 상태에서 검증 결과가 성공으로 처리되는 경우(Happy path)를 테스트합니다.
 
 ### Test Coverage Report
 jacoco를 통해 생성한 테스트 리포트는 다음과 같습니다.
